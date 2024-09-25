@@ -1,11 +1,24 @@
 # views.py
+import json
+
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
 from .redisUtils import RedisUtils
 
-async def get_recent_messages_view(request):
-    user_id = request.session.get('temp_user_id')
-    if not user_id:
-        return JsonResponse({'error': 'User ID not found'}, status=400)
+@csrf_exempt
+async def delete_session(request):
+    try:
+        body = json.loads(request.body)
+        session_id = body.get('session_id')
 
-    messages = await RedisUtils.get_messages(user_id)
-    return JsonResponse({'messages': messages})
+        if not session_id:
+            return JsonResponse({'error': 'Session ID is required'}, status=400)
+
+        # Call the delete method
+        await RedisUtils.delete_temp_user_key(session_id)
+
+        return JsonResponse({'message': 'Session deleted successfully'}, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON format'}, status=400)

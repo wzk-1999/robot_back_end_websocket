@@ -16,53 +16,41 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # Explicitly accept the WebSocket connection
             # print("Accepting WebSocket connection")
             await self.accept()
-            print("WebSocket connect() called")
+            # Extract session ID from the query string
+            session_id = None
+            query_string = self.scope['query_string'].decode()
+            if "sessionid" in query_string:
+                session_id = query_string.split('sessionid=')[1]
 
-            # Extract the sessionid from query parameters
-            session_id = self.scope['query_string'].decode().split('=')[1]
-
-            # Ensure the session is loaded based on the sessionid
-            self.scope['session'] = await database_sync_to_async(
-                self._get_session_from_id)(session_id)
-
-         # Create temp user ID if not exists
-            if not self.scope['session'].get('temp_user_id'):
-                print("temp_user_id not exists")
+            # If session ID does not exist, create a new session
+            if not session_id:
+                # print("No session ID found, creating new session")
                 user_id = await RedisUtils.create_temp_user_id()
 
-                # Ensure session is properly loaded before accessing it
-                # await self.channel_layer.group_add("chat", self.channel_name)
-
-                # Load session if not already loaded
-                if 'session' not in self.scope:
-                    self.scope['session'] = {}
-
-                self.scope['session']['temp_user_id'] = user_id
-
-                # print("done")
-                # Save session after modification
-                await database_sync_to_async(self.scope['session'].save)()
+                await self.send(text_data=json.dumps({'session_id': user_id}))
             else:
-                print("temp_user_id exists")
+                # print("temp_user_id exists")
 
-                user_id = self.scope['session']['temp_user_id']
                 # print(f"Existing temp user ID: {user_id}")
                 # Fetch and send the 10 most recent messages
-                recent_messages = await RedisUtils.get_messages(user_id)
-                for message in recent_messages:
-                    await self.send(text_data=json.dumps({'message': message['text'], 'type': message['type']}))
+                recent_messages = await RedisUtils.get_messages(session_id)
+                # print(recent_messages)
+                # Send the whole array of recent messages at once
+                await self.send(text_data=json.dumps({
+                    'messages': recent_messages,
+                }))
 
-
+            # print("WebSocket connect() called")
 
         except Exception as e:
             print(f"Error during connection: {e}")
 
-    def _get_session_from_id(self, session_id):
-        # Load the session from the session ID
-        from django.contrib.sessions.backends.cache import SessionStore
-        session = SessionStore(session_key=session_id)
-        session.modified = False  # Avoid saving unless necessary
-        return session
+    # def _get_session_from_id(self, session_id):
+    #     # Load the session from the session ID
+    #     from django.contrib.sessions.backends.cache import SessionStore
+    #     session = SessionStore(session_key=session_id)
+    #     session.modified = False  # Avoid saving unless necessary
+    #     return session
 
     async def disconnect(self, close_code):
         # Handle WebSocket disconnection
@@ -71,8 +59,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
 
     async def receive(self, text_data):
-        # Get temp user ID from session
-        user_id = self.scope['session']['temp_user_id']
+
+        query_string = self.scope['query_string'].decode()
+        if "sessionid" in query_string:
+            user_id = query_string.split('sessionid=')[1]
         # Receive message from WebSocket
         data = json.loads(text_data)
         question = data['question']
@@ -148,7 +138,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                                             # print(f"chunk_message is ${chunk_message}")
 
                                             # Optionally: Send partial responses if needed
-                                            await self.send(text_data=json.dumps({'message': chunk_message,'type': 'bot'}))
+                                            await self.send(text_data=json.dumps({'message': chunk_message}))
                                     except json.JSONDecodeError:
                                         continue
 

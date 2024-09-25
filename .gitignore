@@ -1,2 +1,5 @@
 db.sqlite3
 .idea/
+chat/__pycache__/
+*.pyc
+robot_back_end/__pycache__/

@@ -6,7 +6,10 @@ import uuid
 
 class RedisUtils:
     # Initialize Redis client (adjust host/port based on your Redis config)
-    redis_client = redis.Redis(host='localhost', port=6379, db=0)
+
+    # because  redis.Redis(host='localhost', port=6379, db=1) is not async, so the operation using
+    # this connection can't use await keyword
+    redis_client = redis.Redis(host='localhost', port=6379, db=1)
 
     @staticmethod
     async def create_temp_user_id():
@@ -21,14 +24,16 @@ class RedisUtils:
         # Store message as a JSON object including type
         message_data = json.dumps({'text': message, 'type': message_type})
         RedisUtils.redis_client.zadd(key, {message_data: timestamp})
-        # Set TTL for 3 days (259200 seconds)
-        RedisUtils.redis_client.expire(key, 259200)
+        # Set TTL for 1 day for guest user(86400 seconds)
+        RedisUtils.redis_client.expire(key, 86400)
 
     @staticmethod
     async def get_messages(user_id, count=10):
         key = f"{user_id}:messages"
         # Get the most recent 'count' messages sorted by timestamp
-        messages = await RedisUtils.redis_client.zrange(key, -count, -1)  # Fetch most recent messages
+        messages = RedisUtils.redis_client.zrange(key, -count, -1)  # Fetch most recent messages
+        if messages is None:
+            return []
         return [json.loads(message.decode('utf-8')) for message in messages]
 
     @staticmethod
