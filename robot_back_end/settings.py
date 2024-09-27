@@ -38,7 +38,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'channels',  # Add channels here
-    'chat'
+    'chat',
+    'user',
+    'corsheaders'
 ]
 
 # ASGI application (instead of WSGI) for supporting WebSocket
@@ -57,6 +59,7 @@ CHANNEL_LAYERS = {
 }
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # Add this line, should be at the top
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -64,6 +67,11 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+# Allow specific origins
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Add your front-end URL here
 ]
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'

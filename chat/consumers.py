@@ -2,8 +2,9 @@
 import json
 import os
 
-from channels.db import database_sync_to_async
+import jwt
 
+from user.jwt_utils import JWTUtils
 from .redisUtils import RedisUtils
 
 import aiohttp
@@ -16,8 +17,41 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # Explicitly accept the WebSocket connection
             # print("Accepting WebSocket connection")
             await self.accept()
+
+            # Extract JWT from cookies using the utility class
+            headers = dict(self.scope['headers'])
+            jwt_token = JWTUtils.extract_jwt_from_cookies(headers)
+
+            # If JWT is found, decode it and use it
+            if jwt_token:
+                try:
+                    decoded_token = JWTUtils.decode_jwt(jwt_token)
+                    user_email = decoded_token.get('email')
+                    # If JWT is valid, you can use user_email to fetch user data
+                    # Fetch and send the 10 most recent messages
+                    recent_messages = await RedisUtils.get_messages(user_email)
+                    # print(recent_messages)
+                    # Send the whole array of recent messages at once
+                    await self.send(text_data=json.dumps({
+                        'messages': recent_messages,
+                    }))
+                    return
+
+                except jwt.ExpiredSignatureError:
+                    await self.send(text_data=json.dumps({
+                        'error': 'Token has expired'
+                    }))
+                    return
+                except jwt.InvalidTokenError:
+                    await self.send(text_data=json.dumps({
+                        'error': 'Invalid token'
+                    }))
+                    return
+
+            # If no JWT, fall back to extracting session ID from query string
             # Extract session ID from the query string
             session_id = None
+            # print("go")
             query_string = self.scope['query_string'].decode()
             if "sessionid" in query_string:
                 session_id = query_string.split('sessionid=')[1]
@@ -59,14 +93,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
 
     async def receive(self, text_data):
+        # Extract JWT from cookies using the utility class
+        headers = dict(self.scope['headers'])
+        jwt_token = JWTUtils.extract_jwt_from_cookies(headers)
+        user_id = None
 
-        query_string = self.scope['query_string'].decode()
-        if "sessionid" in query_string:
-            user_id = query_string.split('sessionid=')[1]
+        if jwt_token:
+            decoded_token = JWTUtils.decode_jwt(jwt_token)
+            user_id = decoded_token.get('email')
+        # If no JWT is found, fallback to sessionid in query string
+        if not user_id:
+            query_string = self.scope['query_string'].decode()
+            if "sessionid" in query_string:
+                user_id = query_string.split('sessionid=')[1]
         # Receive message from WebSocket
         data = json.loads(text_data)
         question = data['question']
-        await RedisUtils.store_message(user_id, question,'user')
+
         # print(question)
 
         # # Check if `question` is a coroutine, and if so, await it to get the actual value
@@ -78,11 +121,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
         #     # raise TypeError("Question must be a string")
         #     print("question is not a string")
 
+        # Store user question in Redis, passing a custom TTL for logged-in users
+        ttl = 3 * 86400 if jwt_token else 86400  # 3 days for logged-in users, 1 day for guests
+        await RedisUtils.store_message(user_id, question, 'user', ttl)
+
         # Generate answer (This can be rule-based, AI, or random)
-        answer = await self.generate_answer(question)
+        answer = await self.generate_answer(user_id)
+
 
         # Store the answer in Redis after generating it
-        await RedisUtils.store_message(user_id, answer,'bot')
+        await RedisUtils.store_message(user_id, answer,'assistant',ttl)
 
 
         # Send the answer back to WebSocket
@@ -91,9 +139,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
         # }))
 
 # 火山方舟版 api key简单模式：
-    async def generate_answer(self, question):
+    async def generate_answer(self, user_id):
 
-        # print(question)
+        messages_count= await RedisUtils.count_messages(user_id)
+        # Fetch chat history from Redis
+        chat_history = await RedisUtils.get_messages(user_id,messages_count)
+
+        # Prepare messages for AI model, including context
+        messages_for_ai = []
+        for message in chat_history:
+            messages_for_ai.append({"role": message['type'], "content": message['text']})
+        #
+        # # Add the user's question to the messages
+        # messages_for_ai.append({"role": "user", "content": question})
+
+        print(messages_for_ai)
 
         api_url = f"https://ark.cn-beijing.volces.com/api/v3/chat/completions"
         headers = {
@@ -103,17 +163,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
         data = {
             "model": "ep-20240922110810-8njsc",
             # "model": "gpt-3.5-turbo",  # Specify the model you want to use
-            "messages": [{"role": "user", "content": question}],
+            # "messages": [{"role": "user", "content": messages_for_ai}],
+            "messages":messages_for_ai,
             "stream": True # Enable streaming
         }
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(api_url, headers=headers, json=data) as response:
+                    stream_complete = False
                     if response.status == 200:
                         # Initialize a buffer to store the full message
                         full_message = ""
-                        stream_complete = False
+
                         async for chunk in response.content.iter_any():
                             # Decode the chunk and process as needed
                             # print(chunk)

@@ -3,3 +3,4 @@ db.sqlite3
 chat/__pycache__/
 *.pyc
 robot_back_end/__pycache__/
+*/__pycache__/

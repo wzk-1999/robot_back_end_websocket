@@ -18,14 +18,20 @@ class RedisUtils:
         return user_id
 
     @staticmethod
-    async def store_message(user_id, message, message_type):
+    async def store_message(user_id, message, message_type, ttl=86400):
         timestamp = int(time.time())
         key = f"{user_id}:messages"
         # Store message as a JSON object including type
         message_data = json.dumps({'text': message, 'type': message_type})
         RedisUtils.redis_client.zadd(key, {message_data: timestamp})
         # Set TTL for 1 day for guest user(86400 seconds)
-        RedisUtils.redis_client.expire(key, 86400)
+        # set ttl for 3 day if it's a loged in user (86400*3 seconds)
+        RedisUtils.redis_client.expire(key, ttl)
+
+    @staticmethod
+    async def count_messages(user_id):
+        key = f"{user_id}:messages"
+        return RedisUtils.redis_client.zcard(key)
 
     @staticmethod
     async def get_messages(user_id, count=10):
