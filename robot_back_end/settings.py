@@ -74,6 +74,17 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Add your front-end URL here
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',  # Add your frontend URL here
+    # Other trusted origins...
+]
+
+CSRF_COOKIE_NAME = 'csrftoken'
+CSRF_COOKIE_HTTPONLY = False  # Ensure it's accessible via JavaScript
+CSRF_COOKIE_SECURE = False     # Set to True if you're using HTTPS
+
+CORS_ALLOW_CREDENTIALS =True
+
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 SESSION_SAVE_EVERY_REQUEST = True  # Save session to ensure persistence even if no changes are made
